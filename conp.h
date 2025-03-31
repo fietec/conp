@@ -105,6 +105,12 @@ typedef struct{
     ConpLoc loc;
 } ConpLexer;
 
+typedef struct{
+    ConpEntry *items;
+    size_t count;
+    size_t capacity;
+} ConpEntries;
+
 #define conp_expect(lexer, token, ...) conp__expect(lexer, token, conp_token_args_array(__VA_ARGS__)) // fetch the next token and expect one of the given token types
 ConpLexer conp_init(char *buffer, size_t buffer_size, char *buffer_name); // initilize the lexer
 bool conp_next(ConpLexer *lexer, ConpToken *token); // fetch the next token
@@ -113,6 +119,10 @@ void conp_print(ConpToken token); // print a token
 void conp_print_token(ConpToken token);
 
 bool conp_parse(ConpLexer *lexer, ConpEntry *entry);
+bool conp_parse_all(ConpEntries *entries, char *buffer, size_t buffer_size, char *buffer_name);
+void conp_entries_add(ConpEntries *entries, ConpEntry entry);
+bool conp_entries_get(ConpEntries *entries, char *key, ConpToken *token);
+bool conp_entries_iskey(ConpEntries *entries, char *key);
 
 // these functions are used internally, there should be no reason to call them yourself
 void conp__trim_left(ConpLexer *lexer);
@@ -131,20 +141,71 @@ bool conp_parse(ConpLexer *lexer, ConpEntry *entry)
 {
     if (lexer == NULL || entry == NULL) return false;
     ConpToken token;
-    if (!conp_expect(lexer, &token, CONP_VALUES)) return false;
+    bool loop = true;
+    while (loop){
+        conp_next(lexer, &token);
+        switch (token.type){
+            case ConpToken_NewLine: continue;
+            case ConpToken_End: return false;
+            default: {
+                loop = false;
+            }
+        }
+    }
     entry->key = token;
     if (!conp_expect(lexer, &token, ConpToken_Sep)) return false;
     if (!conp_expect(lexer, &token, CONP_VALUES)) return false;
     entry->value = token;
-    conp_next(lexer, &token);
-    switch (token.type){
-        case ConpToken_NewLine: return true;
-        case ConpToken_End: return true;
-        default:{
-            fprintf(stderr, "[ERROR] "CONP_LOC_FMT" Expected [%s, %s], but got %s!\n", conp_loc_expand(token.loc), ConpTokenTypeNames[ConpToken_NewLine], ConpTokenTypeNames[ConpToken_End], ConpTokenTypeNames[token.type]);
-            return false;
+    return true;
+}
+
+bool conp_parse_all(ConpEntries *entries, char *buffer, size_t buffer_size, char *buffer_name)
+{
+    if (entries == NULL || buffer == NULL) return false;
+    ConpLexer lexer = conp_init(buffer, buffer_size, buffer_name);
+    ConpEntry entry;
+    while (conp_parse(&lexer, &entry)){
+        conp_entries_add(entries, entry);
+    }
+    return true;
+}
+
+bool conp_entries_get(ConpEntries *entries, char *key, ConpToken *token)
+{
+    if (entries == NULL || key == NULL || token == NULL) return false;
+    size_t key_len = strlen(key);
+    for (size_t i=0; i<entries->count; ++i){
+        ConpEntry entry = entries->items[i];
+        if (key_len != entry.key.len) continue;
+        if (memcmp(entry.key.start, key, key_len) == 0){
+            *token = entry.value;
+            return true;
         }
     }
+    return false;
+}
+
+void conp_entries_add(ConpEntries *entries, ConpEntry entry)
+{
+    if (entries == NULL) return;
+    if (entries->count >= entries->capacity){
+        size_t capacity = entries->capacity;
+        entries->capacity = (capacity == 0)? 32:capacity*2;
+        entries->items = realloc(entries->items, entries->capacity*sizeof(*entries->items));
+        assert(entries->items != NULL && "Need more RAM!");
+    }
+    entries->items[entries->count++] = entry;
+}
+
+bool conp_entries_iskey(ConpEntries *entries, char *key)
+{
+    if (entries == NULL || key == NULL) return false;
+    size_t key_len = strlen(key);
+    for (size_t i=0; i<entries->count; ++i){
+        ConpToken ikey = entries->items[i].key;
+        if (key_len == ikey.len && memcmp(key, ikey.start, key_len) == 0) return true;
+    }
+    return false;
 }
 
 ConpLexer conp_init(char *buffer, size_t buffer_size, char *buffer_name)
