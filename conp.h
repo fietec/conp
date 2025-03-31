@@ -1,6 +1,6 @@
 /* 
     =========================================
-    conp.h <https://github.com/fietec/conp.h>
+    conp.h <https://github.com/fietec/conp>
     =========================================
     Copyright (c) 2025 Constantijn de Meer
 
@@ -94,6 +94,11 @@ typedef struct{
 } ConpToken;
 
 typedef struct{
+    ConpToken key;
+    ConpToken value;
+} ConpEntry;
+
+typedef struct{
     char *buffer;
     size_t buffer_size;
     size_t index;
@@ -107,6 +112,8 @@ bool conp_extract(ConpToken *token, char *buffer, size_t buffer_size); // extrac
 void conp_print(ConpToken token); // print a token
 void conp_print_token(ConpToken token);
 
+bool conp_parse(ConpLexer *lexer, ConpEntry *entry);
+
 // these functions are used internally, there should be no reason to call them yourself
 void conp__trim_left(ConpLexer *lexer);
 bool conp__find(ConpLexer *lexer, char c);
@@ -119,6 +126,26 @@ bool conp__expect(ConpLexer *lexer, ConpToken *token, ConpTokenType types[], siz
 #endif // _CONP_H
 
 #ifdef CONP_IMPLEMENTATION
+
+bool conp_parse(ConpLexer *lexer, ConpEntry *entry)
+{
+    if (lexer == NULL || entry == NULL) return false;
+    ConpToken token;
+    if (!conp_expect(lexer, &token, CONP_VALUES)) return false;
+    entry->key = token;
+    if (!conp_expect(lexer, &token, ConpToken_Sep)) return false;
+    if (!conp_expect(lexer, &token, CONP_VALUES)) return false;
+    entry->value = token;
+    conp_next(lexer, &token);
+    switch (token.type){
+        case ConpToken_NewLine: return true;
+        case ConpToken_End: return true;
+        default:{
+            fprintf(stderr, "[ERROR] "CONP_LOC_FMT" Expected [%s, %s], but got %s!\n", conp_loc_expand(token.loc), ConpTokenTypeNames[ConpToken_NewLine], ConpTokenTypeNames[ConpToken_End], ConpTokenTypeNames[token.type]);
+            return false;
+        }
+    }
+}
 
 ConpLexer conp_init(char *buffer, size_t buffer_size, char *buffer_name)
 {
